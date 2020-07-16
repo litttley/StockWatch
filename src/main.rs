@@ -136,8 +136,9 @@ async fn parse_stock_data(content: String) {
     let watch: sqlx::Result<Vec<StockWatch>> = sqlx::query_as!(
         StockWatch,
         r#"
-        select id,stock_code,remind_price from setting
+        select id,stock_code,remind_price from setting where is_closed=?
                 "#,
+                0
     )
     .fetch_all(&pool)
     .await;
@@ -153,15 +154,20 @@ async fn parse_stock_data(content: String) {
             if stock_code_retrun.contains(&stock_code) {
                 if now_price >= remind_price.to_f64().unwrap_or(0.00) {
                 let mail_content =    format!("股票名称:{}   股票代码:{}    当前价格{}",stock_name_return,stock_code_retrun,now_price);
-                    send_mail(mail_content).await;
-                    //println!("send_mail");
+                  let isTrue =  send_mail(mail_content).await;
+                    if isTrue{
+
+                        let sql = r#"update setting set is_closed = ? where  stock_code=?  "#;
+                        let mut affect_rows = sqlx::query(sql).bind(1).bind(&stock_code).execute(&pool).await;
+                        println!("{:?}", affect_rows);
+
                 }
             }
         }
     }
-}
+}}
 
-async fn send_mail(mail_content:String) {
+async fn send_mail(mail_content:String) ->bool {
     let email = Email::builder()
         // Addresses can be specified by the tuple (email, alias)
         .to(MAILMAP.get("mail_to_addr").unwrap().as_str())
@@ -189,7 +195,9 @@ async fn send_mail(mail_content:String) {
     mailer.close();
     if result.is_ok() {
         println!("发送成功");
+        return true
     } else {
         println!("发送失败");
+        return false
     }
 }
