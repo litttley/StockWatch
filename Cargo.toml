@@ -1,5 +1,5 @@
 [package]
-name = "gitDemo"
+name = "sotck_watch"
 version = "0.1.0"
 authors = ["litttley <617914118@qq.com>"]
 edition = "2018"
@@ -30,3 +30,4 @@ lazy_static = "1.4.0"
 dotenv = "0.15"
 bigdecimal = { version = "0.1.2", features = ["serde"] }
 async_once = { version = "0.1.0" , features = ["tokio"] }
+colored = "2"
