@@ -16,8 +16,6 @@ use sqlx::mysql::MySqlPool;
 
 use async_once::AsyncOnce;
 use lazy_static::lazy_static;
-
-
 use colored::*;
 
 const PARALLEL_REQUESTS: usize = 2; //控制并行请求数量，太大容易内存不足
@@ -71,6 +69,7 @@ struct StockWatch {
     id: i64,
     stock_code: String,
     remind_price: BigDecimal,
+    remind_type: String,
 }
 
 #[tokio::main]
@@ -133,7 +132,7 @@ async fn get_urls() -> Vec<String> {
     let watch: sqlx::Result<Vec<StockWatch>> = sqlx::query_as!(
         StockWatch,
         r#"
-         select id,stock_code,remind_price from setting where is_closed=?
+         select id,stock_code,remind_price ,remind_type from setting where is_closed=?
                 "#,
         0
     ).fetch_all(&pool).await;
@@ -173,7 +172,7 @@ async fn parse_stock_data(content: String) {
     let watch: sqlx::Result<Vec<StockWatch>> = sqlx::query_as!(
         StockWatch,
         r#"
-        select id,stock_code,remind_price from setting where is_closed=? and stock_code =?
+        select id,stock_code,remind_price,remind_type from setting where is_closed=? and stock_code =?
                 "#,
         0,
          select_stock_code
@@ -186,43 +185,62 @@ async fn parse_stock_data(content: String) {
 
             let stock_code = stock_watch.stock_code;
             let remind_price = stock_watch.remind_price;
+            let remind_type = stock_watch.remind_type;
 
-            print!("{}    ","实时".cyan().bold());
+            print!("{}    ","实    时".cyan().bold());
             print!("{}  ",stock_name_return);
             print!("{}  ",select_stock_code);
             println!("{:?}",now_price);
+            if remind_type.eq("0"){
+                print!("{}    ","卖出提醒".cyan().bold());
+            }else{
+                print!("{}    ","买入提醒".cyan().bold());
+            }
 
-            print!("{}    ","我的".cyan().bold());
+
             print!("{}  ",stock_name_return);
             print!("{}  ",stock_code);
             println!("{:?}",remind_price.to_f64().unwrap_or(0.00));
 
-            if select_stock_code.contains(&stock_code) && now_price >= remind_price.to_f64().unwrap_or(0.00) {
-
+            if  remind_type.eq("0") && select_stock_code.contains(&stock_code)  && now_price >= remind_price.to_f64().unwrap_or(0.00) {
                 let mail_content = format!("股票名称:{}   股票代码:{}    当前价格{}", stock_name_return, stock_code_retrun, now_price);
-                let is_true = send_mail(mail_content).await;
+                let is_true = send_mail(mail_content, "卖出提醒").await;
+
+                if is_true {
+                    let sql = r#"update setting set is_closed = ? where  stock_code=?  "#;
+                    let _affect_rows = sqlx::query(sql)
+                        .bind(1)
+                        .bind(&stock_code)
+                        .execute(&pool)
+                        .await;
+                }
+            }
+          if  remind_type.eq("1") && select_stock_code.contains(&stock_code)  && now_price <= remind_price.to_f64().unwrap_or(0.00) {
+                let mail_content = format!("股票名称:{}   股票代码:{}    当前价格{}", stock_name_return, stock_code_retrun, now_price);
+                let is_true = send_mail(mail_content,"买入提醒").await;
 
                 if is_true {
 
                     let sql = r#"update setting set is_closed = ? where  stock_code=?  "#;
-                    let affect_rows = sqlx::query(sql)
+                    let _affect_rows = sqlx::query(sql)
                         .bind(1)
                         .bind(&stock_code)
                         .execute(&pool)
                         .await;
 
                 }
-            }
+
         }
+    }
     }
 }
 
-async fn send_mail(mail_content: String) -> bool {
+async fn send_mail(mail_content: String,mail_title:&str) -> bool {
 
     let email = Email::builder()
         .to(MAILMAP.get("mail_to_addr").unwrap().as_str())
         .from(MAILMAP.get("mail_from_addr").unwrap().as_str())
-        .subject(MAILMAP.get("mail_title").unwrap().as_str())
+        .subject(mail_title)
         .text(mail_content)
         .build()
         .unwrap();
